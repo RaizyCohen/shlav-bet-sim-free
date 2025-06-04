@@ -1,4 +1,25 @@
+   # Python
+   __pycache__/
+   *.py[cod]
+   *.egg
+   *.egg-info/
+   dist/
+   build/
+   .eggs/
 
+   # Virtual environments
+   .venv/
+   venv/
+   venv_new/
+
+   # Streamlit
+   .streamlit/
+
+   # Environment variables
+   .env
+
+   # Jupyter
+   .ipynb_checkpoints/
 # Python
 __pycache__/
 *.py[cod]
