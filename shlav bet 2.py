@@ -5,12 +5,16 @@ import uuid
 import pandas as pd
 import matplotlib.pyplot as plt
 from dotenv import load_dotenv
+import requests
 
 # Load environment variables from .env if present
 load_dotenv()
 
 # Initialize OpenAI client
-client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
+    raise RuntimeError("OPENAI_API_KEY not set. Please set it in your .env file (locally) or Streamlit Cloud secrets.")
+client = openai.OpenAI(api_key=api_key)
 
 # --- Memory Store ---
 if 'user_profile' not in st.session_state:
@@ -24,6 +28,23 @@ if 'evaluation' not in st.session_state:
 if 'case_log' not in st.session_state:
     st.session_state.case_log = []
 
+GOOGLE_API_KEY = "AIzaSyAHrqfi4t6ajvYqMG2TAaIgBNV3tOoklZ8"  # Provided by user
+GOOGLE_CX = "YOUR_CUSTOM_SEARCH_ENGINE_ID"  # <-- Replace with your Custom Search Engine ID
+
+def get_image_url(query, api_key=GOOGLE_API_KEY, cx=GOOGLE_CX):
+    url = "https://www.googleapis.com/customsearch/v1"
+    params = {
+        "q": query,
+        "searchType": "image",
+        "key": api_key,
+        "cx": cx,
+        "num": 1
+    }
+    response = requests.get(url, params=params)
+    results = response.json()
+    if "items" in results:
+        return results["items"][0]["link"]
+    return None
 
 # --- Step 1: User Profile Form + Topic Selector ---
 def user_profile_form():
@@ -87,8 +108,30 @@ Keep the case brief and focused. Only output the case text.
 def get_patient_response(user_input, extra_data=None):
     case = st.session_state.current_case
     history = "\n".join([f"User: {q}\nPatient: {a}" for q, a in st.session_state.dialogue_history])
+    difficulty = st.session_state.user_profile.get("difficulty", "Easy")
 
-    system_prompt = f"""
+    # Determine if the user ordered a test (simple keyword check)
+    test_keywords = ["ecg", "ekg", "ct", "mri", "x-ray", "xray", "eeg"]
+    ordered_test = next((kw for kw in test_keywords if kw in user_input.lower()), None)
+    image_url = None
+    if ordered_test:
+        # Use the test and case topic for a more relevant search
+        topic = st.session_state.user_profile.get("topic", "")
+        search_query = f"{ordered_test} {topic}"
+        image_url = get_image_url(search_query)
+
+    # Adjust system prompt for difficulty
+    if difficulty.lower() in ["medium", "hard"]:
+        system_prompt = f"""
+You are a simulated patient case for a residency exam.
+Respond ONLY in a clinical, third-person style (e.g., 'The CT scan shows...', 'The CO2 levels are...').
+Do NOT use first person (do not say 'I', 'my', 'me', etc). Only provide information as if reporting results or findings.
+If you provide diagnostic data (e.g., ECG, CT, EEG), ONLY describe the raw findings. Do NOT interpret or suggest what the findings mean (e.g., do not say 'ST elevation is indicative of MI').
+Respond only with what the case allows: history, vitals, results of tests that have been ordered.
+Do not give away the diagnosis. Keep it realistic.
+"""
+    else:
+        system_prompt = f"""
 You are a simulated patient case for a residency exam.
 Respond ONLY in a clinical, third-person style (e.g., 'The CT scan shows...', 'The CO2 levels are...').
 Do NOT use first person (do not say 'I', 'my', 'me', etc). Only provide information as if reporting results or findings.
@@ -109,7 +152,12 @@ Do not give away the diagnosis. Keep it realistic.
         messages=messages,
         temperature=0.5
     )
-    return response.choices[0].message.content.strip()
+    reply = response.choices[0].message.content.strip()
+
+    # If an image was found, display it in Streamlit
+    if image_url:
+        st.image(image_url, caption=f"{ordered_test.upper()} result")
+    return reply
 
 
 # --- Agent 3: Evaluation ---
