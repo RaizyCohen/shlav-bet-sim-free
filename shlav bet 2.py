@@ -29,7 +29,7 @@ if 'case_log' not in st.session_state:
     st.session_state.case_log = []
 
 GOOGLE_API_KEY = "AIzaSyAHrqfi4t6ajvYqMG2TAaIgBNV3tOoklZ8"  # Provided by user
-GOOGLE_CX = "YOUR_CUSTOM_SEARCH_ENGINE_ID"  # <-- Replace with your Custom Search Engine ID
+GOOGLE_CX = "507139094c6134ea4"
 
 def get_image_url(query, api_key=GOOGLE_API_KEY, cx=GOOGLE_CX):
     url = "https://www.googleapis.com/customsearch/v1"
