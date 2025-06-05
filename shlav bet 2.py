@@ -154,9 +154,13 @@ Do not give away the diagnosis. Keep it realistic.
     )
     reply = response.choices[0].message.content.strip()
 
-    # If an image was found, display it in Streamlit
+    # Show the image if found, and debug output
     if image_url:
         st.image(image_url, caption=f"{ordered_test.upper()} result")
+        st.write("Image URL:", image_url)
+    else:
+        if ordered_test:
+            st.write("No image found for query:", search_query)
     return reply
 
 
