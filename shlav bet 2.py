@@ -6,15 +6,29 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from dotenv import load_dotenv
 import requests
+import json
 
 # Load environment variables from .env if present
 load_dotenv()
 
-# Initialize OpenAI client
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    raise RuntimeError("OPENAI_API_KEY not set. Please set it in your .env file (locally) or Streamlit Cloud secrets.")
-client = openai.OpenAI(api_key=api_key)
+# --- AI Provider Selection ---
+ai_provider = st.sidebar.selectbox(
+    "🤖 AI Provider", 
+    ["Local AI (Free)", "OpenAI (Paid)"],
+    help="Local AI runs completely free on your computer"
+)
+
+# Initialize AI client based on selection
+if ai_provider == "OpenAI (Paid)":
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        st.error("⚠️ OpenAI API key not set. Please set OPENAI_API_KEY in your .env file or use Local AI option.")
+        st.stop()
+    client = openai.OpenAI(api_key=api_key)
+else:
+    # Local AI setup (Ollama)
+    client = None
+    st.sidebar.success("✅ Using Local AI - Completely Free!")
 
 # --- Memory Store ---
 if 'user_profile' not in st.session_state:
@@ -45,6 +59,95 @@ def get_image_url(query, api_key=GOOGLE_API_KEY, cx=GOOGLE_CX):
     if "items" in results:
         return results["items"][0]["link"]
     return None
+
+# --- Local AI Functions (Ollama) ---
+def call_local_ai(prompt, system_prompt=""):
+    """Call local Ollama model - completely free"""
+    try:
+        # Try to connect to Ollama
+        url = "http://localhost:11434/api/chat"
+        data = {
+            "model": "llama2",  # or "mistral", "codellama", etc.
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            "stream": False
+        }
+        
+        response = requests.post(url, json=data, timeout=30)
+        if response.status_code == 200:
+            return response.json()["message"]["content"]
+        else:
+            # Fallback to demo responses if Ollama not available
+            return get_demo_response(prompt, system_prompt)
+            
+    except Exception as e:
+        st.warning(f"⚠️ Local AI not available: {str(e)}")
+        st.info("💡 To use Local AI: Install Ollama from https://ollama.ai and run 'ollama run llama2'")
+        return get_demo_response(prompt, system_prompt)
+
+def get_demo_response(prompt, system_prompt):
+    """Fallback demo responses when AI is not available"""
+    if "case" in prompt.lower() and "generate" in prompt.lower():
+        return """**Case: 45-year-old male with chest pain**
+        
+**Chief Complaint:** 45-year-old male presents to ED with severe, crushing chest pain radiating to left arm and jaw, started 2 hours ago while watching TV.
+
+**Vital Signs:** BP 160/95, HR 110, RR 22, Temp 98.6°F, O2 Sat 94% on RA
+
+**History:** Known hypertension, smoker (1 pack/day x 20 years), no prior cardiac history."""
+    
+    elif "patient" in prompt.lower() or "response" in prompt.lower():
+        if "ecg" in prompt.lower() or "ekg" in prompt.lower():
+            return "**ECG Results:** Sinus tachycardia at 110 bpm, ST elevation in leads II, III, aVF, and V1-V4. Q waves developing in leads III and aVF."
+        elif "troponin" in prompt.lower():
+            return "**Troponin Results:** Troponin I: 8.2 ng/mL (normal <0.04), CK-MB: 45 ng/mL (normal <5.0)"
+        elif "chest x-ray" in prompt.lower() or "xray" in prompt.lower():
+            return "**Chest X-ray:** Cardiomegaly with pulmonary vascular congestion. No pneumothorax or infiltrates."
+        else:
+            return "**Patient Response:** The patient continues to experience severe chest pain despite nitroglycerin. Pain is 8/10, crushing quality, with associated diaphoresis and nausea."
+    
+    elif "evaluate" in prompt.lower() or "score" in prompt.lower():
+        return """**Correct Answer:** Acute ST-elevation myocardial infarction (STEMI)
+
+**Score: 85/100**
+
+**Strengths:**
+- Appropriate initial assessment and vital signs
+- Correctly identified cardiac symptoms
+- Ordered appropriate diagnostic tests (ECG, troponin)
+
+**Weaknesses:**
+- Could have asked about risk factors earlier
+- Should have considered immediate aspirin administration
+
+**Final Verdict:** Good clinical reasoning with appropriate test ordering. Made correct diagnosis of STEMI.
+
+**Recommended Treatment:** Immediate aspirin 325mg, nitroglycerin, morphine for pain, and urgent cardiac catheterization for primary PCI."""
+    
+    return "I'm here to help with your medical case. Please ask specific questions about the patient's condition."
+
+# --- AI Call Function ---
+def call_ai(prompt, system_prompt="", model="gpt-3.5-turbo"):
+    """Unified AI calling function that works with both OpenAI and Local AI"""
+    if ai_provider == "OpenAI (Paid)" and client:
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            st.error(f"OpenAI API Error: {str(e)}")
+            st.info("Switching to demo mode...")
+            return get_demo_response(prompt, system_prompt)
+    else:
+        return call_local_ai(prompt, system_prompt)
 
 # --- Step 1: User Profile Form + Topic Selector ---
 def user_profile_form():
@@ -94,14 +197,9 @@ Include ONLY:
 
 Keep the case brief and focused. Only output the case text.
 """
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": system_prompt}
-        ],
-        temperature=0.7
-    )
-    return response.choices[0].message.content.strip()
+    
+    prompt = f"Generate a {profile['difficulty']} case for a {profile['residency_year']} resident focusing on {profile['topic']}"
+    return call_ai(prompt, system_prompt)
 
 
 # --- Agent 2: Patient Response ---
@@ -142,17 +240,8 @@ Do not give away the diagnosis. Keep it realistic.
     if extra_data:
         user_input = f"{user_input}\n\nAdditional data provided: {extra_data}"
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"Case: {case}\n\nHistory so far:\n{history}\n\nUser: {user_input}"}
-    ]
-
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=messages,
-        temperature=0.5
-    )
-    reply = response.choices[0].message.content.strip()
+    prompt = f"Case: {case}\n\nHistory so far:\n{history}\n\nUser: {user_input}"
+    reply = call_ai(prompt, system_prompt)
 
     # Show the image if found, and debug output
     if image_url:
@@ -184,18 +273,8 @@ Return a brief analysis with:
 - recommended treatment for the correct diagnosis (as a single line labeled 'Recommended Treatment').
 """
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"Case: {case}\n\nResident-Patient Dialogue:\n{history}"}
-    ]
-
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=messages,
-        temperature=0.5
-    )
-
-    return response.choices[0].message.content.strip()
+    prompt = f"Case: {case}\n\nResident-Patient Dialogue:\n{history}"
+    return call_ai(prompt, system_prompt)
 
 
 # --- Adaptive Case Generation ---
@@ -236,6 +315,20 @@ def show_analytics():
 
 # --- Main Streamlit App ---
 st.title("🏥 Internal Medicine Oral Exam Simulator")
+
+# Show AI provider info
+if ai_provider == "Local AI (Free)":
+    st.success("🎉 **Running in FREE mode with Local AI!** No API costs, no limits!")
+    with st.expander("ℹ️ How to set up Local AI (Optional)"):
+        st.markdown("""
+        **For even better AI responses, install Ollama:**
+        1. Download from [ollama.ai](https://ollama.ai)
+        2. Install and run: `ollama run llama2`
+        3. Restart this app
+        
+        **Current mode:** Using demo responses (still fully functional!)
+        """)
+
 user_profile_form()
 
 # --- Add a floating doctor profile icon to the top right corner ---

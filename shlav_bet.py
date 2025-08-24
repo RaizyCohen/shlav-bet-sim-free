@@ -35,7 +35,7 @@ Score on differential diagnosis, test ordering, and final diagnosis. Return a br
 # 3. Helper Functions
 def generate_case(difficulty: str) -> str:
     response = openai.ChatCompletion.create(
-        model="gpt-4",
+        model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT_CASE_GENERATOR},
             {"role": "user", "content": f"Generate a {difficulty} case."}
@@ -45,7 +45,7 @@ def generate_case(difficulty: str) -> str:
 
 def get_simulation_response(case_text: str, user_input: str) -> str:
     response = openai.ChatCompletion.create(
-        model="gpt-4",
+        model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT_PATIENT_SIMULATOR},
             {"role": "user", "content": f"Case: {case_text}\nResident: {user_input}"}
@@ -56,7 +56,7 @@ def get_simulation_response(case_text: str, user_input: str) -> str:
 def evaluate_resident(case_text: str, dialog_history: List[str]) -> str:
     history = "\n".join(dialog_history)
     response = openai.ChatCompletion.create(
-        model="gpt-4",
+        model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT_EVALUATOR},
             {"role": "user", "content": f"Case: {case_text}\nResident Dialogue:\n{history}"}
